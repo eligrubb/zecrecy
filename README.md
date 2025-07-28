@@ -1,6 +1,6 @@
 # zecrecy
 
-A Zig project for secure operations.
+A Zig library for handling sensitive memory.
 
 ## Building
 

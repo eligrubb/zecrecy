@@ -2,10 +2,12 @@ const std = @import("std");
 const mem = std.mem;
 const secureZero = std.crypto.secureZero;
 
+///
 pub fn Exposed(comptime T: type) type {
     return struct {
-        const ExposedType = @This();
         expose: *const fn (self: *const ExposedType) []T,
+
+        const ExposedType = @This();
 
         pub fn secret(self: *const ExposedType) []const T {
             return self.expose(self);
@@ -17,6 +19,8 @@ pub fn Exposed(comptime T: type) type {
     };
 }
 
+pub const ExposedString = Exposed(u8);
+
 /// Must call .deinit() on the returned struct when you are finished with it.
 ///
 /// This struct stores an internal mem.Allocator to handle meory management.
@@ -25,7 +29,7 @@ pub fn SecretAny(comptime T: type) type {
     return struct {
         secret: []T,
         allocator: mem.Allocator,
-        _exposer_buffer: Exposed(T),
+        _exposed_buffer: Exposed(T),
 
         const Secret = @This();
 
@@ -35,7 +39,7 @@ pub fn SecretAny(comptime T: type) type {
             return .{
                 .secret = secret_ptr,
                 .allocator = allocator,
-                ._exposer_buffer = .{
+                ._exposed_buffer = .{
                     .expose = Secret.expose,
                 },
             };
@@ -47,7 +51,7 @@ pub fn SecretAny(comptime T: type) type {
             return .{
                 .secret = secret_ptr,
                 .allocator = allocator,
-                ._exposer_buffer = .{
+                ._exposed_buffer = .{
                     .expose = Secret.expose,
                 },
             };
@@ -59,12 +63,12 @@ pub fn SecretAny(comptime T: type) type {
         }
 
         fn expose(e: *const Exposed(T)) []T {
-            const s: *Secret = @alignCast(@fieldParentPtr("_exposer_buffer", @constCast(e)));
+            const s: *Secret = @alignCast(@fieldParentPtr("_exposed_buffer", @constCast(e)));
             return s.secret;
         }
 
         pub fn exposeSecret(self: *const Secret) *const Exposed(T) {
-            return &self._exposer_buffer;
+            return &self._exposed_buffer;
         }
     };
 }
@@ -75,7 +79,7 @@ pub const SecretString = SecretAny(u8);
 pub fn SecretAnyUnmanaged(comptime T: type) type {
     return struct {
         secret: []T,
-        _exposer_buffer: Exposed(T),
+        _exposed_buffer: Exposed(T),
 
         const Secret = @This();
 
@@ -84,7 +88,7 @@ pub fn SecretAnyUnmanaged(comptime T: type) type {
             @memcpy(secret_ptr, secret);
             return .{
                 .secret = secret_ptr,
-                ._exposer_buffer = .{
+                ._exposed_buffer = .{
                     .expose = Secret.expose,
                 },
             };
@@ -95,7 +99,7 @@ pub fn SecretAnyUnmanaged(comptime T: type) type {
             secret_ptr.* = secret();
             return .{
                 .secret = secret_ptr,
-                ._exposer_buffer = .{
+                ._exposed_buffer = .{
                     .expose = Secret.expose,
                 },
             };
@@ -107,12 +111,12 @@ pub fn SecretAnyUnmanaged(comptime T: type) type {
         }
 
         fn expose(e: *const Exposed(T)) []T {
-            const s: *Secret = @alignCast(@fieldParentPtr("_exposer_buffer", @constCast(e)));
+            const s: *Secret = @alignCast(@fieldParentPtr("_exposed_buffer", @constCast(e)));
             return s.secret;
         }
 
         pub fn exposeSecret(self: *const Secret) *const Exposed(T) {
-            return &self._exposer_buffer;
+            return &self._exposed_buffer;
         }
     };
 }

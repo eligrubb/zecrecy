@@ -18,7 +18,7 @@
 ## Project Structure
 - `src/main.zig` - Executable entry point (currently commented out)
 - `src/root.zig` - Library module root (public API exports)
-- `src/secret.zig` - Core secret management functionality
+- `src/secret.zig` - Core secret and memory management functionality
 - `build.zig` - Build configuration and steps
 - Module name: "zecrecy" (import with `@import("zecrecy")`)
 
@@ -26,3 +26,9 @@
 - Run all tests: `zig build test` (runs tests in parallel)
 - Run specific tests: `zig test src/secret.zig` (runs just the tests for `src/secret.zig`)
 - Test files: Tests are embedded in source files using `test` blocks
+
+## Version Control
+- This project uses `jj` for version control.
+- Check status: `jj st`
+- Check log: `jj log`
+- Change current commit message: `jj describe -m "MESSAGE"` (where MESSAGE is the commit message)

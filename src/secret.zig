@@ -2,23 +2,42 @@ const std = @import("std");
 const mem = std.mem;
 const secureZero = std.crypto.secureZero;
 
+pub fn Exposer(comptime T: type) type {
+    return struct {
+        const ExposerType = @This();
+        expose: *const fn (self: *const ExposerType) []T,
+
+        pub fn exposeSecret(self: *const ExposerType) []T {
+            return self.expose(self);
+        }
+    };
+}
+
 /// Must call .deinit() on the returned struct when you are finished with it.
 ///
 /// This struct stores an internal mem.Allocator to handle meory management.
 /// To handle memory management yourself, use `SecretAnyUnmanaged`
 pub fn SecretAny(comptime T: type) type {
     return struct {
-        _secret_buffer: []T,
+        secret: []T,
         allocator: mem.Allocator,
+        _exposer_buffer: Exposer(T),
 
         const Secret = @This();
+
+        pub fn getExposer(self: *const Secret) *const Exposer(T) {
+            return &self._exposer_buffer;
+        }
 
         pub fn init(allocator: mem.Allocator, secret: []const T) !Secret {
             const secret_ptr = try allocator.alloc(T, secret.len);
             @memcpy(secret_ptr, secret);
             const result: Secret = .{
-                ._secret_buffer = secret_ptr,
+                .secret = secret_ptr,
                 .allocator = allocator,
+                ._exposer_buffer = .{
+                    .expose = Secret.expose,
+                },
             };
             // std.debug.print("{any}\n", .{result});
             // const exposer = result.getExposer();
@@ -30,20 +49,26 @@ pub fn SecretAny(comptime T: type) type {
             const secret_ptr = try allocator.alloc(T, secret().len);
             secret_ptr.* = secret();
             const result: Secret = .{
-                ._secret_buffer = secret_ptr,
+                .secret = secret_ptr,
                 .allocator = allocator,
+                ._exposer_buffer = .{
+                    .expose = Secret.expose,
+                },
             };
             std.debug.print("{any}\n", .{result});
             return result;
         }
 
         pub fn deinit(self: *Secret) void {
-            secureZero(T, self._secret_buffer);
-            self.allocator.free(self._secret_buffer);
+            secureZero(T, self.secret);
+            self.allocator.free(self.secret);
         }
 
-        fn exposeSecret(self: *Secret) []T {
-            return self._secret_buffer;
+        fn expose(e: *const Exposer(T)) []T {
+            const s: *Secret = @alignCast(@fieldParentPtr("_exposer_buffer", @constCast(e)));
+            // std.debug.print("{any}", .{this});
+            // std.debug.print("in expose {x}\n", .{this.secret});
+            return s.secret;
         }
     };
 }
@@ -100,9 +125,13 @@ test "secret string basic" {
 
     var secret_string = try SecretString.init(allocator, "secret");
     defer secret_string.deinit();
+    // std.debug.print("{x}\n", .{secret_string.secret});
+    // std.debug.print("{any}\n", .{secret_string});
+    const exposer = secret_string.getExposer();
 
-    try std.testing.expectEqualSlices(u8, "secret", secret_string.exposeSecret());
+    try std.testing.expectEqualSlices(u8, "secret", exposer.exposeSecret());
 }
+
 // test "secret string unmanaged" {
 //     const allocator = std.testing.allocator;
 //

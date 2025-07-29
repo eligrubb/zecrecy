@@ -7,7 +7,11 @@ pub fn Exposed(comptime T: type) type {
         const ExposedType = @This();
         expose: *const fn (self: *const ExposedType) []T,
 
-        pub fn secret(self: *const ExposedType) []T {
+        pub fn secret(self: *const ExposedType) []const T {
+            return self.expose(self);
+        }
+
+        pub fn secretMutable(self: *const ExposedType) []T {
             return self.expose(self);
         }
     };
@@ -133,4 +137,22 @@ test "secret string unmanaged" {
     const exposed = secret_string.exposeSecret();
 
     try std.testing.expectEqualSlices(u8, "secret", exposed.secret());
+}
+
+test "secret string mutable" {
+    const allocator = std.testing.allocator;
+
+    var secret_string = try SecretString.init(allocator, "secret");
+    defer secret_string.deinit();
+
+    const exposed = secret_string.exposeSecret();
+    const secret_mut = exposed.secretMutable();
+
+    @memcpy(secret_mut, "s3cret");
+
+    // causes a compile error:
+    // const secret = exposed.secret();
+    // @memcpy(secret, "s3cret");
+
+    try std.testing.expectEqualSlices(u8, "s3cret", secret_string.secret);
 }

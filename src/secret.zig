@@ -2,12 +2,12 @@ const std = @import("std");
 const mem = std.mem;
 const secureZero = std.crypto.secureZero;
 
-pub fn Exposer(comptime T: type) type {
+pub fn Exposed(comptime T: type) type {
     return struct {
-        const ExposerType = @This();
-        expose: *const fn (self: *const ExposerType) []T,
+        const ExposedType = @This();
+        expose: *const fn (self: *const ExposedType) []T,
 
-        pub fn exposeSecret(self: *const ExposerType) []T {
+        pub fn secret(self: *const ExposedType) []T {
             return self.expose(self);
         }
     };
@@ -21,7 +21,7 @@ pub fn SecretAny(comptime T: type) type {
     return struct {
         secret: []T,
         allocator: mem.Allocator,
-        _exposer_buffer: Exposer(T),
+        _exposer_buffer: Exposed(T),
 
         const Secret = @This();
 
@@ -54,12 +54,12 @@ pub fn SecretAny(comptime T: type) type {
             self.allocator.free(self.secret);
         }
 
-        fn expose(e: *const Exposer(T)) []T {
+        fn expose(e: *const Exposed(T)) []T {
             const s: *Secret = @alignCast(@fieldParentPtr("_exposer_buffer", @constCast(e)));
             return s.secret;
         }
 
-        pub fn getExposer(self: *const Secret) *const Exposer(T) {
+        pub fn exposeSecret(self: *const Secret) *const Exposed(T) {
             return &self._exposer_buffer;
         }
     };
@@ -71,7 +71,7 @@ pub const SecretString = SecretAny(u8);
 pub fn SecretAnyUnmanaged(comptime T: type) type {
     return struct {
         secret: []T,
-        _exposer_buffer: Exposer(T),
+        _exposer_buffer: Exposed(T),
 
         const Secret = @This();
 
@@ -102,12 +102,12 @@ pub fn SecretAnyUnmanaged(comptime T: type) type {
             allocator.free(self.secret);
         }
 
-        fn expose(e: *const Exposer(T)) []T {
+        fn expose(e: *const Exposed(T)) []T {
             const s: *Secret = @alignCast(@fieldParentPtr("_exposer_buffer", @constCast(e)));
             return s.secret;
         }
 
-        pub fn getExposer(self: *const Secret) *const Exposer(T) {
+        pub fn exposeSecret(self: *const Secret) *const Exposed(T) {
             return &self._exposer_buffer;
         }
     };
@@ -120,9 +120,9 @@ test "secret string basic" {
 
     var secret_string = try SecretString.init(allocator, "secret");
     defer secret_string.deinit();
-    const exposer = secret_string.getExposer();
+    const exposed = secret_string.exposeSecret();
 
-    try std.testing.expectEqualSlices(u8, "secret", exposer.exposeSecret());
+    try std.testing.expectEqualSlices(u8, "secret", exposed.secret());
 }
 
 test "secret string unmanaged" {
@@ -130,7 +130,7 @@ test "secret string unmanaged" {
 
     var secret_string = try SecretStringUnmanaged.init(allocator, "secret");
     defer secret_string.deinit(allocator);
-    const exposer = secret_string.getExposer();
+    const exposed = secret_string.exposeSecret();
 
-    try std.testing.expectEqualSlices(u8, "secret", exposer.exposeSecret());
+    try std.testing.expectEqualSlices(u8, "secret", exposed.secret());
 }

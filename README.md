@@ -1,8 +1,8 @@
-# zecrecy
+# Zecrecy
 
 ## Overview
 
-Zecrecy is a small Zig library for secure secret handling.
+[Zeroing] [memory] [is] [hard]. Zecrecy is a small Zig library for secure secret handling that aims to make it a little easier.
 
 Inspired by Rust's `secrecy` crate and similar SecureString libraries in languages like C#, `zecrecy` provides types for wrapping sensitive data (like cryptographic keys, passwords, API tokens) that automatically zero out the data when no longer needed. This helps prevent accidental secret leakage through vulnerabilities like Heartbleed or other memory access issues.
 
@@ -35,7 +35,7 @@ Add to your `build.zig.zon` dependencies using `zig fetch`:
 zig fetch --save git+https://github.com/eligrubb/zecrecy.git
 ```
 
-which will add the following to your `build.zig.zon`:
+which will add something like the following to your `build.zig.zon`:
 
 ```zig
 .dependencies = .{
@@ -56,7 +56,7 @@ const zecrecy = b.dependency("zecrecy", .{
 exe.root_module.addImport("zecrecy", zecrecy.module("zecrecy"));
 ```
 
-and you should be able to use the zecrecy library in your application:
+and then you can import the zecrecy library into your application:
 
 ```zig
 const std = @import("std");
@@ -78,7 +78,7 @@ pub fn main() !void {
 
     // Initialize a secret string (managed version)
     var secret_string = try zecrecy.SecretString.init(allocator, "my_secret_key");
-    defer secret_string.deinit(); // Critical: ensures secure cleanup
+    defer secret_string.deinit(); // Critical: ensures secure memory AND secret cleanup
 
     // Access secret through read-only callback - secret never leaves the callback
     try secret_string.readWith(null, struct {
@@ -195,7 +195,7 @@ try zecrecy.copySecretInto(&secret, &buffer);
 defer std.crypto.secureZero(u8, &buffer); // Clean up when done
 
 // Compare secret with expected value (constant-time comparison)
-const is_correct = try zecrecy.secretEql(&secret, "expected_password");
+const is_correct = try zecrecy.eql(&secret, "expected_password");
 if (is_correct) {
     // Authentication successful
 }
@@ -246,7 +246,7 @@ The library provides two approaches to memory management, following Zig's standa
 
 **Choose unmanaged when:**
 
-- You need more control over memory allocation strategies
+- You're working with complicated lifetimes need more control over memory allocation strategies
 - You're integrating with existing memory management systems
 - You're building performance-critical code where allocator passing is preferred
 - You want to minimize struct size (no stored allocator)
@@ -312,7 +312,7 @@ pub fn main() !void {
 
     const salt = "random_salt_bytes";
     const hash = try hashPassword(&password, salt);
-    
+
     std.log.info("Password hash computed: {any}", .{hash});
     // password memory is automatically zeroed on scope exit
 }
@@ -338,8 +338,7 @@ This library helps prevent common security issues with sensitive data:
 ### Memory Management Integration
 
 - Compatible with custom allocators for secure memory regions
-- Supports integration with memory protection mechanisms
-- Allows for specialized allocation strategies (e.g., locked memory pages)
+- Allows for specialized allocation strategies
 
 ### Critical Security Notes
 
@@ -354,7 +353,7 @@ This library helps prevent common security issues with sensitive data:
 This library draws inspiration from:
 
 - **Rust's `secrecy` crate**: The concept of wrapping secrets with controlled access
-- **C# SecureString**: Automatic memory protection for sensitive strings  
+- **C# SecureString**: Automatic memory protection for sensitive strings
 - **Zig's stdlib patterns**: The managed/unmanaged memory model (like `ArrayList`/`ArrayListUnmanaged`)
 - **Functional programming**: Callback-based access patterns that prevent data leakage
 

@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+
 const secureZero = std.crypto.secureZero;
 const assert = std.debug.assert;
 
@@ -46,13 +47,14 @@ pub fn eql(secret: anytype, buffer: []const @TypeOf(secret.secret[0])) !bool {
     return result;
 }
 
-/// A managed secret container that automatically handles memory allocation and cleanup.
-/// This type follows the same pattern as Zig's `ArrayList` - it stores an allocator
-/// internally and manages all memory operations automatically.
+/// A managed secret container that handles memory allocation and cleanup. This
+/// type follows the same allocation handling pattern as Zig's `ArrayList` - it
+/// stores an allocator internally on initialization and manages all memory
+/// operations automatically.
 ///
-/// **Critical**: You must call `.deinit()` when finished with the secret. Forgetting
-/// to call `deinit()` results in both a memory leak AND a secret leak, as the sensitive
-/// data will remain in memory without being securely zeroed.
+/// **Critical**: You must call `.deinit()` when finished with the secret.
+/// Forgetting to call `deinit()` results in both a memory leak AND a secret
+/// leak.
 ///
 /// ## Memory Management
 /// This struct stores an internal `mem.Allocator` to handle memory management.
@@ -60,7 +62,8 @@ pub fn eql(secret: anytype, buffer: []const @TypeOf(secret.secret[0])) !bool {
 ///
 /// ## Security Features
 /// - Automatic secure zeroing of memory on `deinit()`
-/// - Controlled access through callback functions only (`readWith`, `mutateWith`)
+/// - Controlled access through callback functions only (`readWith`,
+/// `mutateWith`)
 /// - No direct access to secret data prevents accidental copying
 /// - Explicit mutable vs immutable access
 ///
@@ -84,12 +87,12 @@ pub fn Secret(comptime T: type) type {
 
         const Self = @This();
 
-        /// Initialize a secret from a slice of data.
-        /// The data is copied into newly allocated memory, so the original slice
-        /// can be safely discarded after this call.
+        /// Initialize a secret from a slice of data. The original slice is
+        /// unmodified and the data is copied into newly allocated memory the
+        /// original slice can be safely discarded after this call.
         ///
-        /// **Security**: The original data should be securely zeroed by the caller
-        /// if it contains sensitive information.
+        /// **Security**: The original data should be securely zeroed by the
+        /// caller if it contains sensitive information.
         pub fn init(allocator: mem.Allocator, secret: []const T) !Self {
             assert(secret.len > 0);
             const secret_ptr = try allocator.alloc(T, secret.len);
@@ -104,10 +107,10 @@ pub fn Secret(comptime T: type) type {
         /// The data is copied into newly allocated memory, then the original slice
         /// is securely zeroed using `std.crypto.secureZero` before returning.
         ///
-        /// **Security**: This function ensures the source data is completely wiped
-        /// from memory after copying, preventing the secret from existing in
-        /// multiple memory locations. Use this when you have mutable source data
-        /// that should be destroyed after creating the secret.
+        /// **Security**: This function erases the source data from memory after
+        /// copying, preventing the secret from existing in multiple locations
+        /// in memory. Use this when you have mutable source data that should be
+        /// destroyed on creation of the secret.
         ///
         /// **Example**:
         /// ```zig
@@ -128,9 +131,9 @@ pub fn Secret(comptime T: type) type {
         }
 
         /// Initialize a secret from a function that returns the secret data.
-        /// This is useful when the secret is generated or retrieved from an external
-        /// source and you want to avoid having the secret exist in multiple memory
-        /// locations simultaneously.
+        /// This is useful when the secret is generated or retrieved from an
+        /// external source and you want to avoid having the secret exist in
+        /// multiple memory locations simultaneously.
         ///
         /// **Use Cases**:
         /// - Reading secrets from environment variables
@@ -164,35 +167,36 @@ pub fn Secret(comptime T: type) type {
             self.* = undefined;
         }
 
-        /// Access secret data through a read-only callback function.
-        /// The secret data is passed to your callback as a `[]const T` slice.
-        /// This is the only way to read secret data - it cannot be accessed directly.
+        /// Access secret data through a read-only callback function. The secret
+        /// data is passed to your callback as a `[]const T` slice.
         ///
-        /// **Security**: Secret data only exists within the callback scope and cannot
-        /// be stored or copied outside of it.
+        /// **Security**: Secret data only exists within the callback scope and
+        /// cannot be stored or copied outside of it.
         pub fn readWith(self: Self, context: anytype, comptime callback: fn (@TypeOf(context), []const T) anyerror!void) !void {
             return callback(context, self.secret);
         }
 
-        /// Access secret data through a mutable callback function.
-        /// The secret data is passed to your callback as a `[]T` slice that can be modified.
-        /// Use this for operations that need to transform the secret in-place.
+        /// Access secret data through a mutable callback function. The secret
+        /// data is passed to your callback as a `[]T` slice that can be
+        /// modified. Use this for operations that need to transform the secret
+        /// in-place.
         ///
-        /// **Security**: Secret data only exists within the callback scope and cannot
-        /// be stored or copied outside of it.
+        /// **Security**: Secret data only exists within the callback scope and
+        /// cannot be stored or copied outside of it.
         pub fn mutateWith(self: *Self, context: anytype, comptime callback: fn (@TypeOf(context), []T) anyerror!void) !void {
             return callback(context, self.secret);
         }
     };
 }
 
-/// Convenience type alias for `SecretAny(u8)`, the most common use case
-/// for handling string-based secrets like API keys, passwords, and tokens.
+/// Convenience type alias for `SecretAny(u8)`, the most common use case for
+/// handling string-based secrets like API keys, passwords, and tokens.
 pub const SecretString = Secret(u8);
 
 /// An unmanaged secret container that requires explicit allocator management.
-/// This type follows the same pattern as Zig's `ArrayListUnmanaged` - it does not
-/// store an allocator internally, requiring you to pass one to memory management functions.
+/// This type follows the same allocation handling pattern as Zig's
+/// `ArrayListUnmanaged` - it does not store an allocator internally, requiring
+/// you to pass one to memory managemen functions.
 ///
 /// **Critical**: You must call `.deinit(allocator)` when finished with the secret.
 /// Forgetting to call `deinit()` results in both a memory leak AND a secret leak.
@@ -229,12 +233,12 @@ pub fn SecretUnmanaged(comptime T: type) type {
 
         const Self = @This();
 
-        /// Initialize a secret from a slice of data.
-        /// The data is copied into newly allocated memory, so the original slice
-        /// can be safely discarded after this call.
+        /// Initialize a secret from a slice of data. The original slice is
+        /// unmodified and the data is copied into newly allocated memory the
+        /// original slice can be safely discarded after this call.
         ///
-        /// **Security**: The original data should be securely zeroed by the caller
-        /// if it contains sensitive information.
+        /// **Security**: The original data should be securely zeroed by the
+        /// caller if it contains sensitive information.
         pub fn init(allocator: mem.Allocator, secret: []const T) !Self {
             assert(secret.len > 0);
             const secret_ptr = try allocator.alloc(T, secret.len);
@@ -248,10 +252,10 @@ pub fn SecretUnmanaged(comptime T: type) type {
         /// The data is copied into newly allocated memory, then the original slice
         /// is securely zeroed using `std.crypto.secureZero` before returning.
         ///
-        /// **Security**: This function ensures the source data is completely wiped
-        /// from memory after copying, preventing the secret from existing in
-        /// multiple memory locations. Use this when you have mutable source data
-        /// that should be destroyed after creating the secret.
+        /// **Security**: This function erases the source data from memory after
+        /// copying, preventing the secret from existing in multiple locations
+        /// in memory. Use this when you have mutable source data that should be
+        /// destroyed on creation of the secret.
         ///
         /// **Example**:
         /// ```zig
@@ -271,9 +275,9 @@ pub fn SecretUnmanaged(comptime T: type) type {
         }
 
         /// Initialize a secret from a function that returns the secret data.
-        /// This is useful when the secret is generated or retrieved from an external
-        /// source and you want to avoid having the secret exist in multiple memory
-        /// locations simultaneously.
+        /// This is useful when the secret is generated or retrieved from an
+        /// external source and you want to avoid having the secret exist in
+        /// multiple memory locations simultaneously.
         ///
         /// **Use Cases**:
         /// - Reading secrets from environment variables
@@ -291,12 +295,14 @@ pub fn SecretUnmanaged(comptime T: type) type {
             };
         }
 
-        /// Securely clean up the secret by zeroing memory and freeing allocation.
-        /// This function uses `std.crypto.secureZero` to ensure the secret data
-        /// is properly overwritten and cannot be recovered from memory.
+        /// Securely clean up the secret by zeroing memory and freeing
+        /// allocation. This function uses `std.crypto.secureZero` to ensure the
+        /// secret data is properly overwritten and cannot be recovered from
+        /// memory.
         ///
-        /// **Critical**: You must pass the same allocator used during `init()`.
-        /// Failing to call this function results in both memory and secret leakage.
+        /// **Critical**: You must pass teh same allocator used during `init()`.
+        /// Failing to call this function results in both memory AND secret
+        /// leakage.
         pub fn deinit(self: *Self, allocator: mem.Allocator) void {
             secureZero(T, self.secret);
             // use rawFree instead of free to support verification of memory zeroization in testing
@@ -305,31 +311,31 @@ pub fn SecretUnmanaged(comptime T: type) type {
             self.* = undefined;
         }
 
-        /// Access secret data through a read-only callback function.
-        /// The secret data is passed to your callback as a `[]const T` slice.
-        /// This is the only way to read secret data - it cannot be accessed directly.
+        /// Access secret data through a read-only callback function. The secret
+        /// data is passed to your callback as a `[]const T` slice.
         ///
-        /// **Security**: Secret data only exists within the callback scope and cannot
-        /// be stored or copied outside of it.
+        /// **Security**: Secret data only exists within the callback scope and
+        /// cannot be stored or copied outside of it.
         pub fn readWith(self: Self, context: anytype, comptime callback: fn (@TypeOf(context), []const T) anyerror!void) !void {
             return callback(context, self.secret);
         }
 
-        /// Access secret data through a mutable callback function.
-        /// The secret data is passed to your callback as a `[]T` slice that can be modified.
-        /// Use this for operations that need to transform the secret in-place.
+        /// Access secret data through a mutable callback function. The secret
+        /// data is passed to your callback as a `[]T` slice that can be
+        /// modified. Use this for operations that need to transform the secret
+        /// in-place.
         ///
-        /// **Security**: Secret data only exists within the callback scope and cannot
-        /// be stored or copied outside of it.
+        /// **Security**: Secret data only exists within the callback scope and
+        /// cannot be stored or copied outside of it.
         pub fn mutateWith(self: *Self, context: anytype, comptime callback: fn (@TypeOf(context), []T) anyerror!void) !void {
             return callback(context, self.secret);
         }
     };
 }
 
-/// Convenience type alias for `SecretAnyUnmanaged(u8)`, the most common use case
-/// for handling string-based secrets like API keys, passwords, and tokens in
-/// unmanaged memory scenarios.
+/// Convenience type alias for `SecretAnyUnmanaged(u8)`, the most common use
+/// case for handling string-based secrets like API keys, passwords, and tokens
+/// in unmanaged memory scenarios.
 pub const SecretStringUnmanaged = SecretUnmanaged(u8);
 
 test "secret string basic" {

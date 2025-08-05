@@ -1,8 +1,9 @@
 //! # zecrecy - Secure Memory Management for Zig
 //!
-//! A Zig library for securely handling sensitive memory with automatic zeroing to prevent
-//! secret leakage. Inspired by Rust's `secrecy` crate and similar SecureString libraries
-//! in other languages, but designed specifically for Zig's memory management philosophy.
+//! A Zig library for securely handling sensitive memory with automatic zeroing
+//! to prevent secret leakage. Inspired by Rust's `secrecy` crate and similar
+//! SecureString libraries in other languages, butforned specifically around
+//! Zig's memory management philosophy.
 //!
 //! ## Core Design Principles
 //!

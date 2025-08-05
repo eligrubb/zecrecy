@@ -1,3 +1,17 @@
+//! ZerosOnlyAllocator is a custom mem.Allocator that panics if any memory is
+//! not zeroed before being freed. ZerosOnlyAllocator does not handle any
+//! memory operations itself, but instead wraps around a child allocator.
+//! In most cases, this is `std.testing.allocator`.
+//!
+//! **CRITICAL**: This will not cause a panic as expected if the memory isfreed
+//! using the standard `fn free(Allocator, anytype) void` function found in
+//! `mem.Allocator`. This is because `mem.Allocator.free` calls `@memset(ptr,
+//! undefined)` before it eventually calls the `free` function defined by our
+//! custom allocator.
+//!
+//! To get around this, the `zecrecy` library calls `rawFree` directly instead
+//! of using the multiple layers of indirection that `mem.Allocator.free`
+//! provides.
 const std = @import("std");
 const mem = std.mem;
 
@@ -46,4 +60,3 @@ fn free(ctx: *anyopaque, buf: []u8, alignment: mem.Alignment, ret_addr: usize) v
     }
     self.child_allocator.rawFree(buf, alignment, ret_addr);
 }
-

@@ -2,7 +2,7 @@
 
 ## Overview
 
-[Zeroing] [memory] [is] [hard]. Zecrecy is a small Zig library for secure secret handling that aims to make it a little easier.
+[Zeroing](https://eprint.iacr.org/2023/1713) [memory](https://www.cl.cam.ac.uk/archive/rja14/Papers/whatyouc.pdf) [is](https://www.usenix.org/conference/usenixsecurity17/technical-sessions/presentation/yang) [hard](https://www.daemonology.net/blog/2014-09-06-zeroing-buffers-is-insufficient.html). Zecrecy is a small Zig library for secure secret handling that aims to make it a little easier.
 
 Inspired by Rust's `secrecy` crate and similar SecureString libraries in languages like C#, `zecrecy` provides types for wrapping sensitive data (like cryptographic keys, passwords, API tokens) that automatically zero out the data when no longer needed. This helps prevent accidental secret leakage through vulnerabilities like Heartbleed or other memory access issues.
 

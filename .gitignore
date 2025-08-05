@@ -1,6 +1,9 @@
 zig-out/
 .zig-cache/
 .DS_Store
+AGENT.md
+AGENTS.md
+CLAUDE.md
 *.swp
 *.swo
 *~

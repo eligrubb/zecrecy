@@ -61,15 +61,15 @@ pub fn eql(secret: anytype, buffer: []const @TypeOf(secret.secret[0])) !bool {
 /// For manual memory management control, use `SecretUnmanaged` instead.
 ///
 /// ## Security Features
-/// - Automatic secure zeroing of memory on `deinit()`
-/// - Controlled access through callback functions only (`readWith`,
-/// `mutateWith`)
+/// - Automatic secure zeroing of memory on `.deinit()`
+/// - Controlled access through callback functions only (`.readWith`,
+/// `.mutateWith`)
 /// - No direct access to secret data prevents accidental copying
 /// - Explicit mutable vs immutable access
 ///
 /// ## Example
 /// ```zig
-/// var secret = try Secret(u8).init(allocator, "my_api_key");
+/// var secret: Secret(u8) = try .init(allocator, "my_api_key");
 /// defer secret.deinit(); // Critical: ensures secure cleanup
 ///
 /// // Read-only access through callback
@@ -115,7 +115,7 @@ pub fn Secret(comptime T: type) type {
         /// **Example**:
         /// ```zig
         /// var temp_password = [_]u8{'p', 'a', 's', 's'};
-        /// var secret = try Secret(u8).initDestructive(allocator, &temp_password);
+        /// var secret: Secret(u8) = try .initDestructive(allocator, &temp_password);
         /// defer secret.deinit();
         /// // temp_password is now securely zeroed
         /// ```
@@ -189,8 +189,8 @@ pub fn Secret(comptime T: type) type {
     };
 }
 
-/// Convenience type alias for `SecretAny(u8)`, the most common use case for
-/// handling string-based secrets like API keys, passwords, and tokens.
+/// Convenience type alias for `Secret(u8)`, the most common use case for
+/// handling byte-based secrets like API keys, passwords, and tokens.
 pub const SecretString = Secret(u8);
 
 /// An unmanaged secret container that requires explicit allocator management.
@@ -199,7 +199,7 @@ pub const SecretString = Secret(u8);
 /// you to pass one to memory managemen functions.
 ///
 /// **Critical**: You must call `.deinit(allocator)` when finished with the secret.
-/// Forgetting to call `deinit()` results in both a memory leak AND a secret leak.
+/// Forgetting to call `.deinit()` results in both a memory leak AND a secret leak.
 ///
 /// ## When to Use Unmanaged
 /// Choose `SecretUnmanaged` when you:
@@ -209,14 +209,14 @@ pub const SecretString = Secret(u8);
 /// - Are building performance-critical applications where allocator passing is preferred
 ///
 /// ## Security Features
-/// - Automatic secure zeroing of memory on `deinit()`
-/// - Controlled access through callback functions only (`readWith`, `mutateWith`)
+/// - Automatic secure zeroing of memory on `.deinit()`
+/// - Controlled access through callback functions only (`.readWith`, `.mutateWith`)
 /// - No direct access to secret data prevents accidental copying
 /// - Explicit mutable vs immutable access
 ///
 /// ## Example
 /// ```zig
-/// var secret = try SecretUnmanaged(u8).init(allocator, "my_api_key");
+/// var secret: SecretUnmanaged(u8) = try .init(allocator, "my_api_key");
 /// defer secret.deinit(allocator); // Critical: pass allocator to deinit
 ///
 /// // Read-only access through callback
@@ -260,7 +260,7 @@ pub fn SecretUnmanaged(comptime T: type) type {
         /// **Example**:
         /// ```zig
         /// var temp_password = [_]u8{'p', 'a', 's', 's'};
-        /// var secret = try SecretUnmanaged(u8).initDestructive(allocator, &temp_password);
+        /// var secret: SecretUnmanaged(u8) = try .initDestructive(allocator, &temp_password);
         /// defer secret.deinit(allocator);
         /// // temp_password is now securely zeroed
         /// ```
@@ -340,11 +340,11 @@ pub const SecretStringUnmanaged = SecretUnmanaged(u8);
 
 test "secret string basic" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
     const secret = "secret";
 
-    var secret_string = try SecretString.init(allocator, secret);
+    var secret_string: SecretString = try .init(allocator, secret);
     defer secret_string.deinit();
     var buffer = [_]u8{0} ** 10;
     try copySecretInto(&secret_string, &buffer);
@@ -354,10 +354,10 @@ test "secret string basic" {
 
 test "secret string unmanaged" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
-    var secret_string = try SecretStringUnmanaged.init(allocator, "secret");
+    var secret_string: SecretStringUnmanaged = try .init(allocator, "secret");
     defer secret_string.deinit(allocator);
     var buffer = [_]u8{0} ** 10;
     try copySecretInto(&secret_string, &buffer);
@@ -367,10 +367,10 @@ test "secret string unmanaged" {
 
 test "secret string mutable" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
-    var secret_string = try SecretString.init(allocator, "secret");
+    var secret_string: SecretString = try .init(allocator, "secret");
     defer secret_string.deinit();
 
     secret_string.mutateWith(null, struct {
@@ -393,17 +393,17 @@ test "secret string mutable" {
 
 test "generic functions work with both secret types" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
     // Test with managed secret
-    var managed_secret = try SecretString.init(allocator, "managed");
+    var managed_secret: SecretString = try .init(allocator, "managed");
     defer managed_secret.deinit();
 
     try std.testing.expect(try eql(&managed_secret, "managed"));
 
     // Test with unmanaged secret
-    var unmanaged_secret = try SecretStringUnmanaged.init(allocator, "unmanaged");
+    var unmanaged_secret: SecretStringUnmanaged = try .init(allocator, "unmanaged");
     defer unmanaged_secret.deinit(allocator);
 
     try std.testing.expect(try eql(&unmanaged_secret, "unmanaged"));
@@ -419,7 +419,7 @@ test "generic functions work with both secret types" {
 
 test "secret string initFromFunction" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
     const TestSecret = struct {
@@ -429,7 +429,7 @@ test "secret string initFromFunction" {
         }
     };
 
-    var secret_string = try SecretString.initFromFunction(allocator, TestSecret.getSecret);
+    var secret_string: SecretString = try .initFromFunction(allocator, TestSecret.getSecret);
     defer secret_string.deinit();
 
     try std.testing.expect(try eql(&secret_string, "function_secret"));
@@ -441,7 +441,7 @@ test "secret string initFromFunction" {
 
 test "secret string unmanaged initFromFunction" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
     const TestSecret = struct {
@@ -451,7 +451,7 @@ test "secret string unmanaged initFromFunction" {
         }
     };
 
-    var secret_string = try SecretStringUnmanaged.initFromFunction(allocator, TestSecret.getSecret);
+    var secret_string: SecretStringUnmanaged = try .initFromFunction(allocator, TestSecret.getSecret);
     defer secret_string.deinit(allocator);
 
     try std.testing.expect(try eql(&secret_string, "unmanaged_function_secret"));
@@ -463,11 +463,11 @@ test "secret string unmanaged initFromFunction" {
 
 test "secret string initDestructive" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
     var source_secret = [_]u8{ 's', 'e', 'c', 'r', 'e', 't' };
-    var secret_string = try SecretString.initDestructive(allocator, &source_secret);
+    var secret_string: SecretString = try .initDestructive(allocator, &source_secret);
     defer secret_string.deinit();
 
     // Verify the secret was copied correctly
@@ -483,11 +483,11 @@ test "secret string initDestructive" {
 
 test "secret string unmanaged initDestructive" {
     const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
-    var zeros_only_allocator = ZerosOnlyAllocator.init(std.testing.allocator);
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
     var source_secret = [_]u8{ 'u', 'n', 'm', 'a', 'n', 'a', 'g', 'e', 'd' };
-    var secret_string = try SecretStringUnmanaged.initDestructive(allocator, &source_secret);
+    var secret_string: SecretStringUnmanaged = try .initDestructive(allocator, &source_secret);
     defer secret_string.deinit(allocator);
 
     // Verify the secret was copied correctly

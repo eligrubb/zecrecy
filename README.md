@@ -1,4 +1,4 @@
-# Zecrecy
+# Zecrecy: a simple secret handling library for Zig
 
 ## Overview
 

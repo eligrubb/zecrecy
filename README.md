@@ -381,4 +381,6 @@ of data access
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-[^1]: This is not a substitute for proper security practices, but it can help prevent common vulnerabilities.
+[^1]: "Helps" is doing a lot of heavy lifting here; this is not a substitute
+    for proper security practices, but it can help prevent common
+vulnerabilities.

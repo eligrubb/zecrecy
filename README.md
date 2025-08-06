@@ -21,7 +21,10 @@ prevent all security vulnerabilities. However, the goal of this project is to
 minimize the risk of accidental exposure, while providing an API that makes the
 safest option the easiest one.
 
-## Why Zecrecy?
+>[!WARNING]
+>Zecrecy is currently in development and is not ready for production use.
+
+## Why Zecrecy?[^2]
 
 Traditional string and memory handling can leave sensitive data scattered
 throughout memory, even after it's no longer needed. `zecrecy` addresses this
@@ -352,16 +355,16 @@ This library helps prevent common security issues with sensitive data:
 
 ### Critical Security Notes
 
-⚠️ **Always call `deinit()`**: Forgetting to call `deinit()` results in both
+⚠️ **Always call `.deinit()`**: Forgetting to call `.deinit()` results in both
 memory leaks AND secret leaks. The sensitive data will remain in memory without
 being securely zeroed.
 
 ⚠️ **Original data cleanup**: When initializing from existing data with
-`init()`, you're responsible for securely zeroing the original data if it
-contains sensitive information. Use `initDestructive()` to automatically handle
-this.
+`.init()`, you're responsible for securely zeroing the original data if it
+contains sensitive information. Use `.initDestructive()` to automatically
+handle this.
 
-⚠️ **Mutable access**: Use `mutateWith()` sparingly and with care. Secret data
+⚠️ **Mutable access**: Use `.mutateWith()` sparingly and with care. Secret data
 can only be modified within the callback scope.
 
 ## Inspiration & Related Work
@@ -386,3 +389,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 [^1]: "Helps" is doing a lot of heavy lifting here; this is not a substitute
     for proper security practices, but it can help prevent common
 vulnerabilities.
+[^2]: Why the name zecrecy? zig + secrecy = zecrecy 🤯

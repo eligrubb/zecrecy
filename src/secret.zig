@@ -4,49 +4,6 @@ const mem = std.mem;
 const secureZero = std.crypto.secureZero;
 const assert = std.debug.assert;
 
-/// Copy secret data into a provided buffer.
-///
-/// **Safety**: The destination buffer must be at least as large as the secret.
-/// The buffer will contain the secret data after this call - ensure you securely
-/// zero it when no longer needed.
-///
-/// **Example**:
-/// ```zig
-/// var buffer: [32]u8 = undefined;
-/// try copySecretInto(&secret, &buffer);
-/// defer std.crypto.secureZero(u8, &buffer); // Clean up when done
-/// ```
-pub fn copySecretInto(secret: anytype, buffer: []@TypeOf(secret.secret[0])) !void {
-    return secret.readWith(buffer, struct {
-        fn copy(dest: []@TypeOf(secret.secret[0]), src: []const @TypeOf(secret.secret[0])) !void {
-            assert(dest.len >= src.len);
-            @memcpy(dest[0..src.len], src);
-        }
-    }.copy);
-}
-
-/// Compare a secret with a provided buffer for equality.
-///
-/// This function performs a constant-time comparison to prevent timing attacks.
-/// The secret data never leaves the controlled access boundary.
-///
-/// **Example**:
-/// ```zig
-/// const is_correct = try secretEql(&secret, "expected_password");
-/// if (is_correct) {
-///     // Authentication successful
-/// }
-/// ```
-pub fn eql(secret: anytype, buffer: []const @TypeOf(secret.secret[0])) !bool {
-    var result = false;
-    try secret.readWith(.{ buffer, &result }, struct {
-        fn equivalent(context: struct { []const @TypeOf(secret.secret[0]), *bool }, a: []const @TypeOf(secret.secret[0])) !void {
-            context[1].* = (context[0].len == a.len) and (std.crypto.timing_safe.compare(@TypeOf(secret.secret[0]), context[0], a, .little) == .eq);
-        }
-    }.equivalent);
-    return result;
-}
-
 /// A managed secret container that handles memory allocation and cleanup. This
 /// type follows the same allocation handling pattern as Zig's `ArrayList` - it
 /// stores an allocator internally on initialization and manages all memory
@@ -62,30 +19,29 @@ pub fn eql(secret: anytype, buffer: []const @TypeOf(secret.secret[0])) !bool {
 ///
 /// ## Security Features
 /// - Automatic secure zeroing of memory on `.deinit()`
-/// - Controlled access through callback functions only (`.readWith`,
-/// `.mutateWith`)
-/// - No direct access to secret data prevents accidental copying
-/// - Explicit mutable vs immutable access
+/// - Controlled access through `.expose()` and `.exposeMutable()` methods
+/// - Direct access prevented outside of explicit exposure calls
+/// - Explicit mutable vs immutable access patterns
 ///
 /// ## Example
 /// ```zig
 /// var secret: Secret(u8) = try .init(allocator, "my_api_key");
 /// defer secret.deinit(); // Critical: ensures secure cleanup
 ///
-/// // Read-only access through callback
-/// try secret.readWith(null, struct {
-///     fn useKey(_: @TypeOf(null), key: []const u8) !void {
-///         // Use key for crypto operations here
-///         performCryptoOperation(key);
-///     }
-/// }.useKey);
+/// // Read-only access
+/// const key_data = secret.expose();
+/// performCryptoOperation(key_data);
+///
+/// // Mutable access for in-place operations
+/// const mutable_data = secret.exposeMutable();
+/// transformKey(mutable_data);
 /// ```
 pub fn Secret(comptime T: type) type {
     return struct {
-        secret: []T,
+        data: []T,
         allocator: mem.Allocator,
 
-        const Self = @This();
+        const SecretType = @This();
 
         /// Initialize a secret from a slice of data. The original slice is
         /// unmodified and the data is copied into newly allocated memory the
@@ -93,12 +49,12 @@ pub fn Secret(comptime T: type) type {
         ///
         /// **Security**: The original data should be securely zeroed by the
         /// caller if it contains sensitive information.
-        pub fn init(allocator: mem.Allocator, secret: []const T) !Self {
+        pub fn init(allocator: mem.Allocator, secret: []const T) !SecretType {
             assert(secret.len > 0);
             const secret_ptr = try allocator.alloc(T, secret.len);
             @memcpy(secret_ptr, secret);
             return .{
-                .secret = secret_ptr,
+                .data = secret_ptr,
                 .allocator = allocator,
             };
         }
@@ -119,13 +75,13 @@ pub fn Secret(comptime T: type) type {
         /// defer secret.deinit();
         /// // temp_password is now securely zeroed
         /// ```
-        pub fn initDestructive(allocator: mem.Allocator, secret: []T) !Self {
+        pub fn initDestructive(allocator: mem.Allocator, secret: []T) !SecretType {
             assert(secret.len > 0);
             defer secureZero(T, secret);
             const secret_ptr = try allocator.alloc(T, secret.len);
             @memcpy(secret_ptr, secret);
             return .{
-                .secret = secret_ptr,
+                .data = secret_ptr,
                 .allocator = allocator,
             };
         }
@@ -141,13 +97,13 @@ pub fn Secret(comptime T: type) type {
         /// - Retrieving secrets from secure storage
         ///
         /// **Note**: The function will be called exactly once during initialization.
-        pub fn initFromFunction(allocator: mem.Allocator, secret: fn () []const T) !Self {
+        pub fn initFromFunction(allocator: mem.Allocator, secret: fn () []const T) !SecretType {
             const secret_buf = secret();
             assert(secret_buf.len > 0);
             const secret_ptr = try allocator.alloc(T, secret_buf.len);
             @memcpy(secret_ptr, secret_buf);
             return .{
-                .secret = secret_ptr,
+                .data = secret_ptr,
                 .allocator = allocator,
             };
         }
@@ -158,33 +114,76 @@ pub fn Secret(comptime T: type) type {
         ///
         /// **Critical**: Failing to call this function results in both memory
         /// and secret leakage.
-        pub fn deinit(self: *Self) void {
-            secureZero(T, self.secret);
+        pub fn deinit(secret: *SecretType) void {
+            secureZero(T, secret.data);
             // use rawFree instead of free to support verification of memory zeroization in testing
-            self.allocator.rawFree(self.secret, .fromByteUnits(@alignOf(T)), @returnAddress());
-            self.secret = undefined;
-            self.allocator = undefined;
-            self.* = undefined;
+            secret.allocator.rawFree(secret.data, .fromByteUnits(@alignOf(T)), @returnAddress());
+            secret.data = undefined;
+            secret.allocator = undefined;
+            secret.* = undefined;
         }
 
-        /// Access secret data through a read-only callback function. The secret
-        /// data is passed to your callback as a `[]const T` slice.
+        /// Access secret data as a read-only slice. Returns the secret data
+        /// as a `[]const T` slice for read-only operations.
         ///
-        /// **Security**: Secret data only exists within the callback scope and
-        /// cannot be stored or copied outside of it.
-        pub fn readWith(self: Self, context: anytype, comptime callback: fn (@TypeOf(context), []const T) anyerror!void) !void {
-            return callback(context, self.secret);
+        /// **Security**: Use the returned slice immediately and avoid storing
+        /// references to it. The slice remains valid until `.deinit()` is called.
+        pub fn expose(secret: *const SecretType) []const T {
+            return secret.data;
         }
 
-        /// Access secret data through a mutable callback function. The secret
-        /// data is passed to your callback as a `[]T` slice that can be
-        /// modified. Use this for operations that need to transform the secret
-        /// in-place.
+        /// Access secret data as a mutable slice. Returns the secret data
+        /// as a `[]T` slice that can be modified for in-place transformations.
         ///
-        /// **Security**: Secret data only exists within the callback scope and
-        /// cannot be stored or copied outside of it.
-        pub fn mutateWith(self: *Self, context: anytype, comptime callback: fn (@TypeOf(context), []T) anyerror!void) !void {
-            return callback(context, self.secret);
+        /// **Security**: Use the returned slice immediately and avoid storing
+        /// references to it. The slice remains valid until `.deinit()` is called.
+        pub fn exposeMutable(secret: *SecretType) []T {
+            return secret.data;
+        }
+
+        /// Compare this secret with another secret for equality using constant-time comparison.
+        ///
+        /// This function performs a constant-time comparison to prevent timing attacks.
+        /// The `other` parameter can be any type that has `len()` and `expose()` methods,
+        /// allowing comparison between managed and unmanaged secret types.
+        ///
+        /// **Example**:
+        /// ```zig
+        /// var secret1: SecretString = try .init(allocator, "password");
+        /// defer secret1.deinit();
+        /// var secret2: SecretString = try .init(allocator, "password");
+        /// defer secret2.deinit();
+        /// var unmanaged_secret: SecretStringUnmanaged = try .init(allocator, "password");
+        /// defer unmanaged_secret.deinit(allocator);
+        ///
+        /// if (secret1.eql(secret2)) {
+        ///     // Managed secrets match
+        /// }
+        /// if (secret1.eql(unmanaged_secret)) {
+        ///     // Managed and unmanaged secrets match
+        /// }
+        /// ```
+        pub fn eql(secret: *const SecretType, other: anytype) bool {
+            return (secret.len() == other.len() and std.crypto.timing_safe.compare(T, secret.expose(), other.expose(), .little) == .eq);
+        }
+
+        /// Returns length of secret data.
+        pub fn len(secret: *const SecretType) usize {
+            return secret.data.len;
+        }
+
+        /// Securely zero the secret data without freeing the memory.
+        pub fn wipe(secret: *const SecretType) void {
+            secureZero(T, secret.data);
+        }
+
+        /// Produces a clone of the secret using the stored allocator.
+        ///
+        /// **Critical**: You must call `.deinit()` when finished with the secret.
+        /// Forgetting to call `deinit()` results in both a memory leak AND a secret
+        /// leak.
+        pub fn clone(secret: *const SecretType) !SecretType {
+            return .init(secret.allocator, secret.expose());
         }
     };
 }
@@ -210,28 +209,28 @@ pub const SecretString = Secret(u8);
 ///
 /// ## Security Features
 /// - Automatic secure zeroing of memory on `.deinit()`
-/// - Controlled access through callback functions only (`.readWith`, `.mutateWith`)
-/// - No direct access to secret data prevents accidental copying
-/// - Explicit mutable vs immutable access
+/// - Controlled access through `.expose()` and `.exposeMutable()` methods
+/// - Direct access prevented outside of explicit exposure calls
+/// - Explicit mutable vs immutable access patterns
 ///
 /// ## Example
 /// ```zig
 /// var secret: SecretUnmanaged(u8) = try .init(allocator, "my_api_key");
 /// defer secret.deinit(allocator); // Critical: pass allocator to deinit
 ///
-/// // Read-only access through callback
-/// try secret.readWith(null, struct {
-///     fn useKey(_: @TypeOf(null), key: []const u8) !void {
-///         // Use key for crypto operations here
-///         performCryptoOperation(key);
-///     }
-/// }.useKey);
+/// // Read-only access
+/// const key_data = secret.expose();
+/// performCryptoOperation(key_data);
+///
+/// // Mutable access for in-place operations
+/// const mutable_data = secret.exposeMutable();
+/// transformKey(mutable_data);
 /// ```
 pub fn SecretUnmanaged(comptime T: type) type {
     return struct {
-        secret: []T,
+        data: []T,
 
-        const Self = @This();
+        const SecretType = @This();
 
         /// Initialize a secret from a slice of data. The original slice is
         /// unmodified and the data is copied into newly allocated memory the
@@ -239,12 +238,12 @@ pub fn SecretUnmanaged(comptime T: type) type {
         ///
         /// **Security**: The original data should be securely zeroed by the
         /// caller if it contains sensitive information.
-        pub fn init(allocator: mem.Allocator, secret: []const T) !Self {
+        pub fn init(allocator: mem.Allocator, secret: []const T) !SecretType {
             assert(secret.len > 0);
             const secret_ptr = try allocator.alloc(T, secret.len);
             @memcpy(secret_ptr, secret);
             return .{
-                .secret = secret_ptr,
+                .data = secret_ptr,
             };
         }
 
@@ -264,13 +263,13 @@ pub fn SecretUnmanaged(comptime T: type) type {
         /// defer secret.deinit(allocator);
         /// // temp_password is now securely zeroed
         /// ```
-        pub fn initDestructive(allocator: mem.Allocator, secret: []T) !Self {
+        pub fn initDestructive(allocator: mem.Allocator, secret: []T) !SecretType {
             assert(secret.len > 0);
             defer secureZero(T, secret);
             const secret_ptr = try allocator.alloc(T, secret.len);
             @memcpy(secret_ptr, secret);
             return .{
-                .secret = secret_ptr,
+                .data = secret_ptr,
             };
         }
 
@@ -285,13 +284,13 @@ pub fn SecretUnmanaged(comptime T: type) type {
         /// - Retrieving secrets from secure storage
         ///
         /// **Note**: The function will be called exactly once during initialization.
-        pub fn initFromFunction(allocator: mem.Allocator, secret: fn () []const T) !Self {
+        pub fn initFromFunction(allocator: mem.Allocator, secret: fn () []const T) !SecretType {
             const secret_buf = secret();
             assert(secret_buf.len > 0);
             const secret_ptr = try allocator.alloc(T, secret_buf.len);
             @memcpy(secret_ptr, secret_buf);
             return .{
-                .secret = secret_ptr,
+                .data = secret_ptr,
             };
         }
 
@@ -300,40 +299,83 @@ pub fn SecretUnmanaged(comptime T: type) type {
         /// secret data is properly overwritten and cannot be recovered from
         /// memory.
         ///
-        /// **Critical**: You must pass teh same allocator used during `init()`.
+        /// **Critical**: You must pass the same allocator used during `init()`.
         /// Failing to call this function results in both memory AND secret
         /// leakage.
-        pub fn deinit(self: *Self, allocator: mem.Allocator) void {
-            secureZero(T, self.secret);
+        pub fn deinit(secret: *SecretType, allocator: mem.Allocator) void {
+            secureZero(T, secret.data);
             // use rawFree instead of free to support verification of memory zeroization in testing
-            allocator.rawFree(self.secret, .fromByteUnits(@alignOf(T)), @returnAddress());
-            self.secret = undefined;
-            self.* = undefined;
+            allocator.rawFree(secret.data, .fromByteUnits(@alignOf(T)), @returnAddress());
+            secret.data = undefined;
+            secret.* = undefined;
         }
 
-        /// Access secret data through a read-only callback function. The secret
-        /// data is passed to your callback as a `[]const T` slice.
+        /// Access secret data as a read-only slice. Returns the secret data
+        /// as a `[]const T` slice for read-only operations.
         ///
-        /// **Security**: Secret data only exists within the callback scope and
-        /// cannot be stored or copied outside of it.
-        pub fn readWith(self: Self, context: anytype, comptime callback: fn (@TypeOf(context), []const T) anyerror!void) !void {
-            return callback(context, self.secret);
+        /// **Security**: Use the returned slice immediately and avoid storing
+        /// references to it. The slice remains valid until `.deinit()` is called.
+        pub fn expose(secret: *const SecretType) []const T {
+            return secret.data;
         }
 
-        /// Access secret data through a mutable callback function. The secret
-        /// data is passed to your callback as a `[]T` slice that can be
-        /// modified. Use this for operations that need to transform the secret
-        /// in-place.
+        /// Access secret data as a mutable slice. Returns the secret data
+        /// as a `[]T` slice that can be modified for in-place transformations.
         ///
-        /// **Security**: Secret data only exists within the callback scope and
-        /// cannot be stored or copied outside of it.
-        pub fn mutateWith(self: *Self, context: anytype, comptime callback: fn (@TypeOf(context), []T) anyerror!void) !void {
-            return callback(context, self.secret);
+        /// **Security**: Use the returned slice immediately and avoid storing
+        /// references to it. The slice remains valid until `.deinit()` is called.
+        pub fn exposeMutable(secret: *SecretType) []T {
+            return secret.data;
+        }
+
+        /// Compare this secret with another secret for equality using constant-time comparison.
+        ///
+        /// This function performs a constant-time comparison to prevent timing attacks.
+        /// The `other` parameter can be any type that has `len()` and `expose()` methods,
+        /// allowing comparison between managed and unmanaged secret types.
+        ///
+        /// **Example**:
+        /// ```zig
+        /// var secret1: SecretStringUnmanaged = try .init(allocator, "password");
+        /// defer secret1.deinit(allocator);
+        /// var secret2: SecretStringUnmanaged = try .init(allocator, "password");
+        /// defer secret2.deinit(allocator);
+        /// var managed_secret: SecretString = try .init(allocator, "password");
+        /// defer managed_secret.deinit();
+        ///
+        /// if (secret1.eql(secret2)) {
+        ///     // Unmanaged secrets match
+        /// }
+        /// if (secret1.eql(managed_secret)) {
+        ///     // Unmanaged and managed secrets match
+        /// }
+        /// ```
+        pub fn eql(secret: *const SecretType, other: anytype) bool {
+            return (secret.len() == other.len() and std.crypto.timing_safe.compare(T, secret.expose(), other.expose(), .little) == .eq);
+        }
+
+        /// Returns length of secret data.
+        pub fn len(secret: *const SecretType) usize {
+            return secret.data.len;
+        }
+
+        /// Securely zero the secret data without freeing the memory.
+        pub fn wipe(secret: *const SecretType) void {
+            secureZero(T, secret.data);
+        }
+
+        /// Produces a clone of the secret using the provided allocator.
+        ///
+        /// **Critical**: You must call `.deinit(allocator)` when finished with the secret.
+        /// Forgetting to call `deinit()` results in both a memory leak AND a secret
+        /// leak.
+        pub fn clone(secret: *const SecretType, allocator: mem.Allocator) !SecretType {
+            return .init(allocator, secret.expose());
         }
     };
 }
 
-/// Convenience type alias for `SecretAnyUnmanaged(u8)`, the most common use
+/// Convenience type alias for `SecretUnmanaged(u8)`, the most common use
 /// case for handling string-based secrets like API keys, passwords, and tokens
 /// in unmanaged memory scenarios.
 pub const SecretStringUnmanaged = SecretUnmanaged(u8);
@@ -346,10 +388,8 @@ test "secret string basic" {
 
     var secret_string: SecretString = try .init(allocator, secret);
     defer secret_string.deinit();
-    var buffer = [_]u8{0} ** 10;
-    try copySecretInto(&secret_string, &buffer);
 
-    try std.testing.expectEqualSlices(u8, "secret", buffer[0..secret.len]);
+    try std.testing.expectEqualSlices(u8, "secret", secret_string.expose());
 }
 
 test "secret string unmanaged" {
@@ -359,10 +399,8 @@ test "secret string unmanaged" {
 
     var secret_string: SecretStringUnmanaged = try .init(allocator, "secret");
     defer secret_string.deinit(allocator);
-    var buffer = [_]u8{0} ** 10;
-    try copySecretInto(&secret_string, &buffer);
 
-    try std.testing.expectEqualSlices(u8, "secret", buffer[0.."secret".len]);
+    try std.testing.expectEqualSlices(u8, "secret", secret_string.expose());
 }
 
 test "secret string mutable" {
@@ -373,22 +411,24 @@ test "secret string mutable" {
     var secret_string: SecretString = try .init(allocator, "secret");
     defer secret_string.deinit();
 
-    secret_string.mutateWith(null, struct {
-        fn threeFromE(_: @TypeOf(null), old: []u8) !void {
-            for (old) |*c| {
-                if (c.* == 'e') {
-                    c.* = '3';
-                    break;
-                }
-            }
+    const mutable_exposed = secret_string.exposeMutable();
+    for (mutable_exposed) |*c| {
+        if (c.* == 'e') {
+            c.* = '3';
+            break;
         }
-    }.threeFromE) catch unreachable;
+    }
 
     // causes a compile error:
-    // const secret = exposed.secret();
-    // @memcpy(secret, "s3cret");
+    // const exposed = secret_string.expose();
+    // for (exposed) |*c| {
+    //     if (c.* == 'e') {
+    //         c.* = '3';
+    //         break;
+    //      }
+    // }
 
-    try std.testing.expectEqualSlices(u8, "s3cret", secret_string.secret);
+    try std.testing.expectEqualSlices(u8, "s3cret", secret_string.expose());
 }
 
 test "generic functions work with both secret types" {
@@ -396,25 +436,18 @@ test "generic functions work with both secret types" {
     var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
     const allocator = zeros_only_allocator.allocator();
 
-    // Test with managed secret
+    // Create managed secret
     var managed_secret: SecretString = try .init(allocator, "managed");
     defer managed_secret.deinit();
 
-    try std.testing.expect(try eql(&managed_secret, "managed"));
-
-    // Test with unmanaged secret
-    var unmanaged_secret: SecretStringUnmanaged = try .init(allocator, "unmanaged");
+    // Create unmanaged secret
+    var unmanaged_secret: SecretStringUnmanaged = try .init(allocator, "managed");
     defer unmanaged_secret.deinit(allocator);
-
-    try std.testing.expect(try eql(&unmanaged_secret, "unmanaged"));
-
-    // Test copyInto
-    var buffer: [20]u8 = undefined;
-    try copySecretInto(&managed_secret, &buffer);
-    try std.testing.expectEqualSlices(u8, "managed", buffer[0.."managed".len]);
 
     // Both types work with the same generic functions - library code doesn't need to care
     // which specific type it receives
+    try std.testing.expect(managed_secret.eql(unmanaged_secret));
+    try std.testing.expect(unmanaged_secret.eql(managed_secret));
 }
 
 test "secret string initFromFunction" {
@@ -429,14 +462,15 @@ test "secret string initFromFunction" {
         }
     };
 
-    var secret_string: SecretString = try .initFromFunction(allocator, TestSecret.getSecret);
-    defer secret_string.deinit();
+    var secret_string_from_function: SecretString = try .initFromFunction(allocator, TestSecret.getSecret);
+    defer secret_string_from_function.deinit();
 
-    try std.testing.expect(try eql(&secret_string, "function_secret"));
+    var secret_string_from_static: SecretString = try .init(allocator, "function_secret");
+    defer secret_string_from_static.deinit();
 
-    var buffer: [20]u8 = undefined;
-    try copySecretInto(&secret_string, &buffer);
-    try std.testing.expectEqualSlices(u8, "function_secret", buffer[0.."function_secret".len]);
+    try std.testing.expect(secret_string_from_function.eql(secret_string_from_static));
+
+    try std.testing.expectEqualSlices(u8, "function_secret", secret_string_from_function.expose());
 }
 
 test "secret string unmanaged initFromFunction" {
@@ -451,14 +485,19 @@ test "secret string unmanaged initFromFunction" {
         }
     };
 
-    var secret_string: SecretStringUnmanaged = try .initFromFunction(allocator, TestSecret.getSecret);
-    defer secret_string.deinit(allocator);
+    var secret_string_from_function: SecretStringUnmanaged = try .initFromFunction(allocator, TestSecret.getSecret);
+    defer secret_string_from_function.deinit(allocator);
 
-    try std.testing.expect(try eql(&secret_string, "unmanaged_function_secret"));
+    var secret_string_from_static: SecretStringUnmanaged = try .init(allocator, "unmanaged_function_secret");
+    defer secret_string_from_static.deinit(allocator);
 
-    var buffer: [30]u8 = undefined;
-    try copySecretInto(&secret_string, &buffer);
-    try std.testing.expectEqualSlices(u8, "unmanaged_function_secret", buffer[0.."unmanaged_function_secret".len]);
+    try std.testing.expect(secret_string_from_function.eql(secret_string_from_static));
+
+    try std.testing.expectEqualSlices(
+        u8,
+        "unmanaged_function_secret",
+        secret_string_from_function.expose(),
+    );
 }
 
 test "secret string initDestructive" {
@@ -467,18 +506,19 @@ test "secret string initDestructive" {
     const allocator = zeros_only_allocator.allocator();
 
     var source_secret = [_]u8{ 's', 'e', 'c', 'r', 'e', 't' };
-    var secret_string: SecretString = try .initDestructive(allocator, &source_secret);
-    defer secret_string.deinit();
+    var secret_string_from_destructive: SecretString = try .initDestructive(allocator, &source_secret);
+    defer secret_string_from_destructive.deinit();
+
+    var secret_string_from_static: SecretString = try .init(allocator, "secret");
+    defer secret_string_from_static.deinit();
 
     // Verify the secret was copied correctly
-    try std.testing.expect(try eql(&secret_string, "secret"));
+    try std.testing.expect(secret_string_from_destructive.eql(secret_string_from_static));
 
     // Verify the source was zeroed
     try std.testing.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0 }, &source_secret);
 
-    var buffer: [10]u8 = undefined;
-    try copySecretInto(&secret_string, &buffer);
-    try std.testing.expectEqualSlices(u8, "secret", buffer[0.."secret".len]);
+    try std.testing.expectEqualSlices(u8, "secret", secret_string_from_destructive.expose());
 }
 
 test "secret string unmanaged initDestructive" {
@@ -487,16 +527,206 @@ test "secret string unmanaged initDestructive" {
     const allocator = zeros_only_allocator.allocator();
 
     var source_secret = [_]u8{ 'u', 'n', 'm', 'a', 'n', 'a', 'g', 'e', 'd' };
-    var secret_string: SecretStringUnmanaged = try .initDestructive(allocator, &source_secret);
-    defer secret_string.deinit(allocator);
+    var secret_string_from_destructive: SecretStringUnmanaged = try .initDestructive(allocator, &source_secret);
+    defer secret_string_from_destructive.deinit(allocator);
+
+    var secret_string_from_static: SecretStringUnmanaged = try .init(allocator, "unmanaged");
+    defer secret_string_from_static.deinit(allocator);
 
     // Verify the secret was copied correctly
-    try std.testing.expect(try eql(&secret_string, "unmanaged"));
+    try std.testing.expect(secret_string_from_destructive.eql(secret_string_from_static));
 
     // Verify the source was zeroed
     try std.testing.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 }, &source_secret);
 
-    var buffer: [15]u8 = undefined;
-    try copySecretInto(&secret_string, &buffer);
-    try std.testing.expectEqualSlices(u8, "unmanaged", buffer[0.."unmanaged".len]);
+    try std.testing.expectEqualSlices(u8, "unmanaged", secret_string_from_destructive.expose());
+}
+
+test "secret wipe" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var secret: SecretString = try .init(allocator, "sensitive");
+    defer secret.deinit();
+
+    // Verify the secret contains the expected data before wiping
+    try std.testing.expectEqualSlices(u8, "sensitive", secret.expose());
+
+    // Wipe the secret
+    secret.wipe();
+
+    // Verify the data has been zeroed (direct access for testing)
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 }, secret.expose());
+
+    // The secret should still be valid for operations like len()
+    try std.testing.expectEqual(@as(usize, 9), secret.len());
+}
+
+test "secret unmanaged wipe" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var secret: SecretStringUnmanaged = try .init(allocator, "sensitive");
+    defer secret.deinit(allocator);
+
+    // Verify the secret contains the expected data before wiping
+    try std.testing.expectEqualSlices(u8, "sensitive", secret.expose());
+
+    // Wipe the secret
+    secret.wipe();
+
+    // Verify the data has been zeroed (direct access for testing)
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 }, secret.expose());
+
+    // The secret should still be valid for operations like len()
+    try std.testing.expectEqual(@as(usize, 9), secret.len());
+}
+
+test "secret clone" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var original_secret: SecretString = try .init(allocator, "original");
+    defer original_secret.deinit();
+
+    // Clone the secret
+    var cloned_secret: SecretString = try original_secret.clone();
+    defer cloned_secret.deinit();
+
+    // Verify both secrets contain the same data
+    try std.testing.expectEqualSlices(u8, "original", original_secret.expose());
+    try std.testing.expectEqualSlices(u8, "original", cloned_secret.expose());
+
+    // Verify they are independent (different memory locations)
+    try std.testing.expect(original_secret.data.ptr != cloned_secret.data.ptr);
+
+    // Verify equality check works
+    try std.testing.expect(original_secret.eql(cloned_secret));
+
+    // Modify the original to ensure independence
+    const original_mutable = original_secret.exposeMutable();
+    original_mutable[0] = 'X';
+
+    // Cloned secret should remain unchanged
+    try std.testing.expectEqualSlices(u8, "original", cloned_secret.expose());
+    try std.testing.expectEqualSlices(u8, "Xriginal", original_secret.expose());
+}
+
+test "secret unmanaged clone" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var original_secret: SecretStringUnmanaged = try .init(allocator, "original");
+    defer original_secret.deinit(allocator);
+
+    // Clone the secret using the same allocator
+    var cloned_secret: SecretStringUnmanaged = try original_secret.clone(allocator);
+    defer cloned_secret.deinit(allocator);
+
+    // Verify both secrets contain the same data
+    try std.testing.expectEqualSlices(u8, "original", original_secret.expose());
+    try std.testing.expectEqualSlices(u8, "original", cloned_secret.expose());
+
+    // Verify they are independent (different memory locations)
+    try std.testing.expect(original_secret.data.ptr != cloned_secret.data.ptr);
+
+    // Verify equality check works
+    try std.testing.expect(original_secret.eql(cloned_secret));
+
+    // Modify the original to ensure independence
+    const original_mutable = original_secret.exposeMutable();
+    original_mutable[0] = 'X';
+
+    // Cloned secret should remain unchanged
+    try std.testing.expectEqualSlices(u8, "original", cloned_secret.expose());
+    try std.testing.expectEqualSlices(u8, "Xriginal", original_secret.expose());
+}
+
+test "expect fail secret equality with unequal content same length" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var secret1: SecretString = try .init(allocator, "password");
+    defer secret1.deinit();
+    var secret2: SecretString = try .init(allocator, "passw0rd");
+    defer secret2.deinit();
+
+    // Secrets have same length but different content - should not be equal
+    try std.testing.expect(!secret1.eql(secret2));
+    try std.testing.expect(!secret2.eql(secret1));
+}
+
+test "expect fail secret equality with different lengths" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var short_secret: SecretString = try .init(allocator, "short");
+    defer short_secret.deinit();
+    var long_secret: SecretString = try .init(allocator, "much_longer_secret");
+    defer long_secret.deinit();
+
+    // Secrets have different lengths - should not be equal
+    try std.testing.expect(!short_secret.eql(long_secret));
+    try std.testing.expect(!long_secret.eql(short_secret));
+}
+
+test "expect fail secret unmanaged equality with unequal content same length" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var secret1: SecretStringUnmanaged = try .init(allocator, "api_key_");
+    defer secret1.deinit(allocator);
+    var secret2: SecretStringUnmanaged = try .init(allocator, "api_key1");
+    defer secret2.deinit(allocator);
+
+    // Secrets have same length but different content - should not be equal
+    try std.testing.expect(!secret1.eql(secret2));
+    try std.testing.expect(!secret2.eql(secret1));
+}
+
+test "expect fail secret unmanaged equality with different lengths" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    var secret1: SecretStringUnmanaged = try .init(allocator, "key");
+    defer secret1.deinit(allocator);
+    var secret2: SecretStringUnmanaged = try .init(allocator, "very_long_key");
+    defer secret2.deinit(allocator);
+
+    // Secrets have different lengths - should not be equal
+    try std.testing.expect(!secret1.eql(secret2));
+    try std.testing.expect(!secret2.eql(secret1));
+}
+
+test "expect fail cross-type equality with unequal secrets" {
+    const ZerosOnlyAllocator = @import("testing/ZerosOnlyAllocator.zig");
+    var zeros_only_allocator: ZerosOnlyAllocator = .init(std.testing.allocator);
+    const allocator = zeros_only_allocator.allocator();
+
+    // Test managed vs unmanaged with different content but same length
+    var managed_secret: SecretString = try .init(allocator, "token123");
+    defer managed_secret.deinit();
+    var unmanaged_secret: SecretStringUnmanaged = try .init(allocator, "token456");
+    defer unmanaged_secret.deinit(allocator);
+
+    // Should not be equal despite same type compatibility
+    try std.testing.expect(!managed_secret.eql(unmanaged_secret));
+    try std.testing.expect(!unmanaged_secret.eql(managed_secret));
+
+    // Test with different lengths
+    var short_managed: SecretString = try .init(allocator, "abc");
+    defer short_managed.deinit();
+    var long_unmanaged: SecretStringUnmanaged = try .init(allocator, "abcdefghijk");
+    defer long_unmanaged.deinit(allocator);
+
+    try std.testing.expect(!short_managed.eql(long_unmanaged));
+    try std.testing.expect(!long_unmanaged.eql(short_managed));
 }

@@ -12,9 +12,9 @@ little easier.
 Inspired by Rust's `secrecy` crate and other, similar `SecretString` libraries,
 `zecrecy` provides types for wrapping sensitive data (like cryptographic keys,
 passwords, API tokens) that automatically zero out the data when no longer
-needed. This helps[^1] prevent accidental secret leakage through
-vulnerabilities like [buffer
-overflows](https://en.wikipedia.org/wiki/Heartbleed) and memory dump attacks.
+needed. This helps prevent accidental secret leakage through vulnerabilities
+like [buffer overflows](https://en.wikipedia.org/wiki/Heartbleed) and memory
+dump attacks.[^1]
 
 As the papers linked above conclude, using a tool like `zecrecy` will not
 prevent all security vulnerabilities. However, the goal of this project is to

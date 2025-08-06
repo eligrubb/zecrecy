@@ -9,7 +9,7 @@
 Zecrecy is a small Zig library that aims to make securely handling secrets
 a little easier.
 
-Inspired by Rust's `secrecy` crate and other, similar `SecretString` libraries,
+Inspired by Rust's `secrecy` crate and other, similar `SecureString` libraries,
 `zecrecy` provides types for wrapping sensitive data (like cryptographic keys,
 passwords, API tokens) that automatically zero out the data when no longer
 needed. This helps prevent accidental secret leakage through vulnerabilities
@@ -17,9 +17,9 @@ like [buffer overflows](https://en.wikipedia.org/wiki/Heartbleed) and memory
 dump attacks.[^1]
 
 As the papers linked above conclude, using a tool like `zecrecy` will not
-prevent all security vulnerabilities. However, the goal of this project is to
-minimize the risk of accidental exposure, while providing an API that makes the
-safest option the easiest one.
+prevent all memory-leak-style security vulnerabilities. The goal of this
+project is to minimize the risk of accidental exposure, while providing an API
+that makes the safest option the easiest one.
 
 >[!WARNING]
 >Zecrecy is currently in development and is not ready for production use.

@@ -7,7 +7,7 @@
 [is](https://www.usenix.org/conference/usenixsecurity17/technical-sessions/presentation/yang)
 [hard](https://www.daemonology.net/blog/2014-09-06-zeroing-buffers-is-insufficient.html).
 Zecrecy is a small Zig library that aims to make securely handling secrets
-little easier.
+a little easier.
 
 Inspired by Rust's `secrecy` crate and other, similar `SecretString` libraries,
 `zecrecy` provides types for wrapping sensitive data (like cryptographic keys,
@@ -21,7 +21,7 @@ prevent all security vulnerabilities. However, the goal of this project is to
 minimize the risk of accidental exposure, while providing an API that makes the
 safest option the easiest one.
 
-## Why zecrecy?
+## Why Zecrecy?
 
 Traditional string and memory handling can leave sensitive data scattered
 throughout memory, even after it's no longer needed. `zecrecy` addresses this
@@ -314,6 +314,8 @@ zig build
 ```
 
 ### Testing
+
+Majority of tests are located in `src/secret.zig`.
 
 ```bash
 zig build test

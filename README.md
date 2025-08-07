@@ -1,4 +1,9 @@
-# Zecrecy: a simple secret handling library for Zig
+# Zecrecy: a simple secret sanitization library for Zig 🧼
+
+![Zig
+Version](https://img.shields.io/badge/Zig-0.14.1-color?logo=zig&color=%23f3ab20)
+[![Tests](https://github.com/eligrubb/zecrecy/actions/workflows/main.yml/badge.svg)](https://github.com/eligrubb/zecrecy/actions/workflows/main.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
 

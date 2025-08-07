@@ -386,6 +386,10 @@ Automatic memory protection for sensitive strings
 - **Functional programming**: Callback-based access patterns to contain scope
 of data access
 
+## Zecrecy Development Log
+
+- [Testing Secure Zeroization in Zig with Custom Memory Allocators](https://eligrubb.com/notes/2025/til-zig-custom-memory-allocator/).
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

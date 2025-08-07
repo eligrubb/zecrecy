@@ -117,6 +117,7 @@ pub fn Secret(comptime T: type) type {
         pub fn deinit(secret: *SecretType) void {
             secureZero(T, secret.data);
             // use rawFree instead of free to support verification of memory zeroization in testing
+            if (secret.data.len == 0) return;
             secret.allocator.rawFree(secret.data, .fromByteUnits(@alignOf(T)), @returnAddress());
             secret.data = undefined;
             secret.allocator = undefined;
@@ -310,6 +311,7 @@ pub fn SecretUnmanaged(comptime T: type) type {
         pub fn deinit(secret: *SecretType, allocator: mem.Allocator) void {
             secureZero(T, secret.data);
             // use rawFree instead of free to support verification of memory zeroization in testing
+            if (secret.data.len == 0) return;
             allocator.rawFree(secret.data, .fromByteUnits(@alignOf(T)), @returnAddress());
             secret.data = undefined;
             secret.* = undefined;

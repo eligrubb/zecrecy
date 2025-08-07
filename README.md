@@ -1,4 +1,9 @@
-# Zecrecy: a simple secret handling library for Zig
+# Zecrecy: a simple secret sanitization library for Zig 🧼
+
+![Zig
+Version](https://img.shields.io/badge/Zig-0.14.1-color?logo=zig&color=%23f3ab20)
+[![Tests](https://github.com/eligrubb/zecrecy/actions/workflows/main.yml/badge.svg)](https://github.com/eligrubb/zecrecy/actions/workflows/main.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
 
@@ -45,8 +50,10 @@ using `std.crypto.secureZero`
 after copying, preventing secrets from existing in multiple memory locations
 - **Memory Safety**: Follows Zig's memory management philosophy by giving
 control to the user
-- **Flexible Access**: `Exposed` pattern allows safe access to secrets with
-explicit mutability
+- **Direct Access**: `expose()` and `exposeMutable()` methods provide controlled
+access to secret data with explicit mutability
+- **Secure Comparison**: `.eql()` method enables constant-time comparison between
+any secret types (managed, unmanaged, different element types)
 - **Two Memory Models**: Choose between managed (like `std.ArrayList`) or unmanaged
 (like `std.ArrayListUnmanaged`) memory handling
 - **Type Safety**: Compile-time prevention of accidental secret copying or
@@ -110,23 +117,16 @@ pub fn main() !void {
     var secret_string: zecrecy.SecretString = try .init(allocator, "my_secret_key");
     defer secret_string.deinit(); // Critical: ensures secure memory AND secret cleanup
 
-    // Access secret through read-only callback - secret never leaves the callback
-    try secret_string.readWith(null, struct {
-        fn printLength(_: @TypeOf(null), secret: []const u8) !void {
-            std.debug.print("Secret length: {}", .{secret.len});
-        }
-    }.printLength);
+    // Access secret data as read-only slice
+    const secret_data = secret_string.expose();
+    std.debug.print("Secret length: {}\n", .{secret_data.len});
 
     // For operations that need to modify the secret in-place
-    try secret_string.mutateWith(null, struct {
-        fn makeUppercase(_: @TypeOf(null), secret: []u8) !void {
-            // Convert first two characters to uppercase
-            if (secret.len >= 2) {
-                secret[0] = std.ascii.toUpper(secret[0]);
-                secret[1] = std.ascii.toUpper(secret[1]);
-            }
-        }
-    }.makeUppercase);
+    const mutable_data = secret_string.exposeMutable();
+    if (mutable_data.len >= 2) {
+        mutable_data[0] = std.ascii.toUpper(mutable_data[0]);
+        mutable_data[1] = std.ascii.toUpper(mutable_data[1]);
+    }
 }
 ```
 
@@ -141,13 +141,10 @@ fn getApiKeyFromEnv() []const u8 {
 var secret: zecrecy.SecretString = try .initFromFunction(allocator, getApiKeyFromEnv);
 defer secret.deinit();
 
-// Use the secret through controlled access
-try secret.readWith(null, struct {
-    fn performAuth(_: @TypeOf(null), api_key: []const u8) !void {
-        // Use api_key for authentication
-        std.debug.print("Authenticating with key of length: {}", .{api_key.len});
-    }
-}.performAuth);
+// Access the secret data directly
+const api_key = secret.expose();
+std.debug.print("Authenticating with key of length: {}\n", .{api_key.len});
+// Use api_key for authentication operations
 ```
 
 ### Destructive Initialization
@@ -164,20 +161,12 @@ var secret: zecrecy.SecretString = try .initDestructive(allocator, &password_buf
 defer secret.deinit();
 
 // password_buffer is now securely zeroed - the secret only exists in one location
-// *note*: if &password_buffer is not securely zeroed, this is a potential side-channel
-// attack vector, using `std.mem.eql` instead of `std.crypto.timing_safe.eql`
-assert(std.mem.eql(u8, &password_buffer, &[_]u8{0} ** 8));
+std.testing.expectEqualSlices(u8, &[_]u8{0} ** 8, &password_buffer) catch unreachable;
 
-// Use the secret safely
-try secret.readWith(null, struct {
-    fn validatePassword(_: @TypeOf(null), pwd: []const u8) !void {
-        // Perform password validation
-        performPasswordCheck(pwd);
-        // *Important*: It is the developer's responsibility to ensure that the secret
-        // data is handled securely and not copied onto the stack or other memory
-        // without additional zeroing.
-    }
-}.validatePassword);
+// Access the secret data for validation
+const password_data = secret.expose();
+performPasswordCheck(password_data);
+// *Important*: Avoid storing references to the exposed slice
 ```
 
 ### Unmanaged Memory Model
@@ -189,13 +178,9 @@ For more control over memory allocation, use the unmanaged variants:
 var secret: zecrecy.SecretStringUnmanaged = try .init(allocator, "my_secret");
 defer secret.deinit(allocator); // Must pass allocator to deinit
 
-// Same callback interface works with both managed and unmanaged
-try secret.readWith(null, struct {
-    fn useSecret(_: @TypeOf(null), data: []const u8) !void {
-        // Process secret data here
-        performCryptoOperation(data);
-    }
-}.useSecret);
+// Same access methods work with both managed and unmanaged
+const secret_data = secret.expose();
+performCryptoOperation(secret_data);
 
 // Destructive initialization also available for unmanaged
 var temp_key = [_]u8{'k', 'e', 'y', '_', 'd', 'a', 't', 'a'};
@@ -207,33 +192,49 @@ defer unmanaged_secret.deinit(allocator);
 ### Working with Generic Secrets
 
 ```zig
-// For odd secret types like obscure cryptographic keys
-const KeyType = [32]u12;
-var crypto_key: zecrecy.Secret(KeyType) = try .init(allocator, &my_key_bytes);
+// For custom secret types like cryptographic keys
+const KeyType = u32;
+var key_data = [_]KeyType{0x12345678} ** 8; // 32 bytes
+var crypto_key: zecrecy.Secret(KeyType) = try .init(allocator, &key_data);
 defer crypto_key.deinit();
 
-// Access the key through callback
-try crypto_key.readWith(null, struct {
-    fn useCryptoKey(_: @TypeOf(null), key_data: []const u8) !void {
-        // Use key_data for encryption/decryption
-        assert(key_data.len == 32);
-        performEncryption(key_data);
-    }
-}.useCryptoKey);
+// Access the key data directly
+const key_slice = crypto_key.expose();
+std.debug.assert(key_slice.len == 8);
+performEncryption(key_slice);
 ```
 
 ### Helper Functions for Common Operations
 
 ```zig
-// Copy secret into a buffer (useful for C interop)
-var buffer: [32]u8 = undefined;
-try zecrecy.copySecretInto(&secret, &buffer);
-defer std.crypto.secureZero(u8, &buffer); // Clean up when done
+// Compare secrets using constant-time comparison (works between managed and unmanaged types)
+var secret1: zecrecy.SecretString = try .init(allocator, "password123");
+defer secret1.deinit();
+var secret2: zecrecy.SecretString = try .init(allocator, "password123");
+defer secret2.deinit();
 
-// Compare secret with expected value (constant-time comparison)
-const is_correct = try zecrecy.eql(&secret, "expected_password");
-if (is_correct) {
-    // Authentication successful
+// Compare managed secrets
+if (secret1.eql(secret2)) {
+    // Managed secrets match - authentication successful
+    std.debug.print("Authentication successful\n");
+}
+
+// Compare with unmanaged secret
+var unmanaged_secret: zecrecy.SecretStringUnmanaged = try .init(allocator, "password123");
+defer unmanaged_secret.deinit(allocator);
+
+if (secret1.eql(unmanaged_secret)) {
+    // Mixed type comparison works seamlessly
+    std.debug.print("Cross-type comparison successful\n");
+}
+
+// Copy secret data for use with external APIs
+const secret_data = secret1.expose();
+var buffer: [32]u8 = undefined;
+if (secret_data.len <= buffer.len) {
+    @memcpy(buffer[0..secret_data.len], secret_data);
+    defer std.crypto.secureZero(u8, buffer[0..secret_data.len]); // Clean up when done
+    performExternalOperation(buffer[0..secret_data.len]);
 }
 ```
 
@@ -243,30 +244,34 @@ The library is built around two key concepts:
 
 1. **Secret Types**: `SecretString`, `Secret(T)` and their unmanaged variants
    wrap your sensitive data and handle secure cleanup
-2. **Callback-Based Access**: All access to secret data happens through
-   controlled callback functions (`readWith`/`mutateWith`) that prevent
-   accidental data leakage
+2. **Controlled Access**: Access to secret data happens through explicit
+   `expose()` and `exposeMutable()` methods that return slices for immediate use
 
-### Callback-Based Security
+### Direct Access Security
 
-This design ensures secret data never leaves the controlled access boundary:
+This design provides controlled access while maintaining performance:
 
 ```zig
-// Function that works with any secret type through callbacks
+// Function that works with any secret type
 fn performCryptoOperation(secret: anytype) !void {
-    try secret.readWith(null, struct {
-        fn encrypt(_: @TypeOf(null), key_data: []const u8) !void {
-            // Use key_data for cryptographic operations
-            // Secret data cannot be stored or copied outside this callback
-            encryptWithKey(key_data);
-        }
-    }.encrypt);
+    const key_data = secret.expose();
+    encryptWithKey(key_data);
+    // Use key_data immediately - avoid storing references
 }
 
 // Works with both managed and unmanaged:
 try performCryptoOperation(&managed_secret);
 try performCryptoOperation(&unmanaged_secret);
+
+// Generic comparison function using the eql method
+fn compareSecrets(a: anytype, b: anytype) bool {
+    return a.eql(b);
+}
 ```
+
+In tying the secret's lifetime to the lifetime of the underlying memory,
+`zecrecy` makes the simple contract: **manage memory correctly, get secure
+secrets automatically**.
 
 ## Architecture & Design Decisions
 
@@ -283,7 +288,7 @@ passing an allocator to memory management functions
 **Choose managed when:**
 
 - You want simpler code with automatic memory handling
-- The secret lifetime matches your allocator lifetime
+- The secret lifetime matches your `allocator` lifetime
 - You're building applications where convenience is prioritized
 
 **Choose unmanaged when:**
@@ -297,16 +302,15 @@ preferred
 
 ### Security Through Design
 
-The callback-based approach provides several security benefits:
+The direct access approach provides several security benefits:
 
-- **No Direct Access**: Secret data can never be accessed directly, preventing
-accidental copying or exposure
-- **Controlled Scope**: Secret data only exists within callback functions,
-limiting its lifetime
-- **Compile-Time Safety**: The type system prevents secret data from escaping
-the controlled access boundary
-- **Explicit Intent**: Mutable vs immutable access is clearly expressed through
-`readWith` vs `mutateWith`
+- **Controlled Access**: Secrets are only accessible through explicit
+`.expose()` and `.exposeMutable()` method calls
+- **Clear Intent**: Mutable vs immutable access is clearly expressed through
+different method calls
+- **Immediate Use**: Returned slices are intended for immediate use, discouraging
+storing references
+- **Automatic Cleanup**: All secret data is securely zeroed on `.deinit()`
 
 ## Development
 
@@ -343,10 +347,10 @@ This library helps prevent common security issues with sensitive data:
 
 ### Controlled Access Patterns
 
-- Callback-based access prevents secret data from leaving controlled boundaries
-- Explicit mutable vs immutable access through `readWith` vs `mutateWith`
-- Compile-time guarantees that secret data cannot be copied or stored outside callbacks
-- Helper functions like `copySecretInto` and `secretEql` provide safe common operations
+- Direct access through `.expose()` and `.exposeMutable()` methods
+- Explicit mutable vs immutable access patterns
+- Built-in `.eql()` method provides constant-time secret comparison
+- Exposed slices should be used immediately to minimize exposure time
 
 ### Memory Management Integration
 
@@ -364,8 +368,8 @@ being securely zeroed.
 contains sensitive information. Use `.initDestructive()` to automatically
 handle this.
 
-⚠️ **Mutable access**: Use `.mutateWith()` sparingly and with care. Secret data
-can only be modified within the callback scope.
+⚠️ **Mutable access**: Use `.exposeMutable()` sparingly and with care. Avoid
+storing references to the returned mutable slice.
 
 ## Inspiration & Related Work
 
@@ -387,6 +391,6 @@ of data access
 MIT License - see [LICENSE](LICENSE) for details.
 
 [^1]: "Helps" is doing a lot of heavy lifting here; this is not a substitute
-    for proper security practices, but it can help prevent common
-vulnerabilities.
-[^2]: Why the name zecrecy? zig + secrecy = zecrecy 🤯
+for proper security practices, but it can help prevent common vulnerabilities.
+
+[^2]: For anyone asking literally: zig + secrecy = zecrecy 🔥🖋️🤓

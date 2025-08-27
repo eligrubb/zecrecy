@@ -1,7 +1,7 @@
 # Zecrecy: a simple secret sanitization library for Zig 🧼
 
 ![Zig
-Version](https://img.shields.io/badge/Zig-0.14.1-color?logo=zig&color=%23f3ab20)
+Version](https://img.shields.io/badge/Zig-0.15.1-color?logo=zig&color=%23f3ab20)
 [![Tests](https://github.com/eligrubb/zecrecy/actions/workflows/main.yml/badge.svg)](https://github.com/eligrubb/zecrecy/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -53,9 +53,7 @@ control to the user
 - **Direct Access**: `expose()` and `exposeMutable()` methods provide controlled
 access to secret data with explicit mutability
 - **Secure Comparison**: `.eql()` method enables constant-time comparison between
-any secret types (managed, unmanaged, different element types)
-- **Two Memory Models**: Choose between managed (like `std.ArrayList`) or unmanaged
-(like `std.ArrayListUnmanaged`) memory handling
+secret types.
 - **Type Safety**: Compile-time prevention of accidental secret copying or
 exposure
 - **Composable Design**: Clean separation between secret storage and access
@@ -63,7 +61,7 @@ patterns
 
 ## Installation
 
-**Requirements**: Zig 0.14.1 or later
+**Requirements**: Zig 0.15.1 or later
 
 Add to your `build.zig.zon` dependencies using `zig fetch`:
 
@@ -97,7 +95,7 @@ and then you can import the zecrecy library into your application:
 const std = @import("std");
 const zecrecy = @import("zecrecy");
 
-const SecretString: type = zecrecy.SecretString;
+const SecretBytes: type = zecrecy.SecretBytes;
 ```
 
 ## Usage
@@ -113,9 +111,9 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Initialize a secret string (managed version)
-    var secret_string: zecrecy.SecretString = try .init(allocator, "my_secret_key");
-    defer secret_string.deinit(); // Critical: ensures secure memory AND secret cleanup
+    // Initialize a secret byte slice
+    var secret_string: zecrecy.SecretBytes = try .init(allocator, "my_secret_key");
+    defer secret_string.deinit(allocator); // Critical: ensures secure memory AND secret cleanup
 
     // Access secret data as read-only slice
     const secret_data = secret_string.expose();
@@ -138,7 +136,7 @@ fn getApiKeyFromEnv() []const u8 {
     return std.posix.getenv("API_KEY") orelse "default_key";
 }
 
-var secret: zecrecy.SecretString = try .initFromFunction(allocator, getApiKeyFromEnv);
+var secret: zecrecy.SecretBytes = try .initFromFunction(allocator, getApiKeyFromEnv);
 defer secret.deinit();
 
 // Access the secret data directly
@@ -157,7 +155,7 @@ completely wiped after creating the secret, use `initDestructive`:
 var password_buffer = [_]u8{'p', 'a', 's', 's', 'w', 'o', 'r', 'd'};
 
 // Create secret and automatically zero the source buffer
-var secret: zecrecy.SecretString = try .initDestructive(allocator, &password_buffer);
+var secret: zecrecy.SecretBytes = try .initDestructive(allocator, &password_buffer);
 defer secret.deinit();
 
 // password_buffer is now securely zeroed - the secret only exists in one location
@@ -167,26 +165,6 @@ std.testing.expectEqualSlices(u8, &[_]u8{0} ** 8, &password_buffer) catch unreac
 const password_data = secret.expose();
 performPasswordCheck(password_data);
 // *Important*: Avoid storing references to the exposed slice
-```
-
-### Unmanaged Memory Model
-
-For more control over memory allocation, use the unmanaged variants:
-
-```zig
-// Unmanaged version - you control the allocator
-var secret: zecrecy.SecretStringUnmanaged = try .init(allocator, "my_secret");
-defer secret.deinit(allocator); // Must pass allocator to deinit
-
-// Same access methods work with both managed and unmanaged
-const secret_data = secret.expose();
-performCryptoOperation(secret_data);
-
-// Destructive initialization also available for unmanaged
-var temp_key = [_]u8{'k', 'e', 'y', '_', 'd', 'a', 't', 'a'};
-var unmanaged_secret: zecrecy.SecretStringUnmanaged = try .initDestructive(allocator, &temp_key);
-defer unmanaged_secret.deinit(allocator);
-// temp_key is now securely zeroed
 ```
 
 ### Working with Generic Secrets
@@ -207,27 +185,17 @@ performEncryption(key_slice);
 ### Helper Functions for Common Operations
 
 ```zig
-// Compare secrets using constant-time comparison (works between managed and unmanaged types)
-var secret1: zecrecy.SecretString = try .init(allocator, "password123");
-defer secret1.deinit();
-var secret2: zecrecy.SecretString = try .init(allocator, "password123");
-defer secret2.deinit();
+// Compare secrets using constant-time comparison
+var secret1: zecrecy.SecretBytes = try .init(allocator, "password123");
+defer secret1.deinit(allocator);
+var secret2: zecrecy.SecretBytes = try .init(allocator, "password123");
+defer secret2.deinit(allocator);
 
-// Compare managed secrets
+// Compare secrets
 if (secret1.eql(secret2)) {
-    // Managed secrets match - authentication successful
+    // Secrets match - authentication successful
     std.debug.print("Authentication successful\n");
 }
-
-// Compare with unmanaged secret
-var unmanaged_secret: zecrecy.SecretStringUnmanaged = try .init(allocator, "password123");
-defer unmanaged_secret.deinit(allocator);
-
-if (secret1.eql(unmanaged_secret)) {
-    // Mixed type comparison works seamlessly
-    std.debug.print("Cross-type comparison successful\n");
-}
-
 // Copy secret data for use with external APIs
 const secret_data = secret1.expose();
 var buffer: [32]u8 = undefined;
@@ -242,7 +210,7 @@ if (secret_data.len <= buffer.len) {
 
 The library is built around two key concepts:
 
-1. **Secret Types**: `SecretString`, `Secret(T)` and their unmanaged variants
+1. **Secret Types**: `SecretBytes` and `Secret(T)`
    wrap your sensitive data and handle secure cleanup
 2. **Controlled Access**: Access to secret data happens through explicit
    `expose()` and `exposeMutable()` methods that return slices for immediate use
@@ -259,9 +227,7 @@ fn performCryptoOperation(secret: anytype) !void {
     // Use key_data immediately - avoid storing references
 }
 
-// Works with both managed and unmanaged:
-try performCryptoOperation(&managed_secret);
-try performCryptoOperation(&unmanaged_secret);
+try performCryptoOperation(&secret);
 
 // Generic comparison function using the eql method
 fn compareSecrets(a: anytype, b: anytype) bool {
@@ -274,31 +240,6 @@ In tying the secret's lifetime to the lifetime of the underlying memory,
 secrets automatically**.
 
 ## Architecture & Design Decisions
-
-### Memory Management Philosophy
-
-The library provides two approaches to memory management, following Zig's
-standard library patterns (like `std.ArrayList` vs `std.ArrayListUnmanaged`):
-
-- **Managed** (`SecretString`, `Secret(T)`): Stores an allocator and handles
-all memory management internally
-- **Unmanaged** (`SecretStringUnmanaged`, `SecretUnmanaged(T)`): Requires
-passing an allocator to memory management functions
-
-**Choose managed when:**
-
-- You want simpler code with automatic memory handling
-- The secret lifetime matches your `allocator` lifetime
-- You're building applications where convenience is prioritized
-
-**Choose unmanaged when:**
-
-- You're working with complicated lifetimes and need more control over memory
-allocation strategies
-- You're integrating with existing memory management systems
-- You're building performance-critical code where allocator passing is
-preferred
-- You want to minimize struct size (no stored allocator)
 
 ### Security Through Design
 
@@ -381,10 +322,6 @@ secrets with controlled access
 - **C#
 [SecureString](https://learn.microsoft.com/en-us/dotnet/api/system.security.securestring?view=net-9.0)**:
 Automatic memory protection for sensitive strings
-- **Zig's stdlib patterns**: The managed/unmanaged memory model (like
-`std.ArrayList`/`std.ArrayListUnmanaged`)
-- **Functional programming**: Callback-based access patterns to contain scope
-of data access
 
 ## Zecrecy Development Log
 

@@ -85,9 +85,7 @@
 
 // Re-export secret types
 pub const Secret = @import("secret.zig").Secret;
-pub const SecretString = @import("secret.zig").SecretString;
-pub const SecretUnmanaged = @import("secret.zig").SecretUnmanaged;
-pub const SecretStringUnmanaged = @import("secret.zig").SecretStringUnmanaged;
+pub const SecretBytes = @import("secret.zig").SecretBytes;
 
 test "run all test" {
     const std = @import("std");

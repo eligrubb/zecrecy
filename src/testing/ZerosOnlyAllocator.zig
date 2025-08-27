@@ -56,7 +56,8 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: mem.Alignment, new_len: usize
 fn free(ctx: *anyopaque, buf: []u8, alignment: mem.Alignment, ret_addr: usize) void {
     const self: *ZerosOnlyAllocator = @ptrCast(@alignCast(ctx));
     for (buf) |byte| {
-        if (byte != 0) @panic("memory not zeroed before freeing");
+        if (byte != 0) @panic("non-zero byte freed");
+        // if (byte != 0) @panic("memory not zeroed before freeing");
     }
     self.child_allocator.rawFree(buf, alignment, ret_addr);
 }
